@@ -133,4 +133,5 @@ async def mycandy(ctx):
     await ctx.send(f"🍬 {ctx.author.mention}, you have **{amount} {CANDY_EMOJI}**!")
 
 # --- RUN ---
-bot.run("MTQxMjk5NzEzNjI1MjkyODA2Mw.GdzsTe.wjMD2Z5oSicUSd3BARioxyW3NbUFYRhLLGnoJI")
+import os
+bot.run(os.getenv("TOKEN"))
