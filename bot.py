@@ -12,8 +12,8 @@ import logging
 # --- CONFIG ---
 TOKEN = os.getenv("TOKEN")  # Set this in Render env variables
 BOT_NAME = "Trick-or-Treat"
-TRICK_THREAD_ID = 1411787882322198600  # #trick-or-treating
-LEADERBOARD_CHANNEL_ID = 1411788070134485042  # #trick-or-treat-leaderboard
+TRICK_THREAD_ID = 1419091285322629221  # #trick-or-treating
+LEADERBOARD_CHANNEL_ID = 1419091463437815831  # #trick-or-treat-leaderboard
 CANDY_LOG_CHANNEL_ID = 1419091590445793412  # #candy-log
 CANDY_EMOJI = "<:CandyCorn:1408306488170254397>"
 LEADERBOARD_EMOJI = "<:TrickorTreat:1419093341026385920>"
@@ -182,3 +182,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
