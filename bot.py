@@ -131,7 +131,7 @@ async def on_message(message):
             add_candy(message.author.id, 1)
             trick_channel = bot.get_channel(TRICK_THREAD_ID)
             if trick_channel:
-                await trick_channel.send(f"🎃 {message.author.display_name} earned 1 🍬 for being active today!")
+                await trick_channel.send(f"🎃 {message.author.display_name} earned 1 {CANDY_EMOJI} for being active today!")
         # Random reward: 10% chance, max 1 per hour
         if can_get_random_reward(message.author.id) and random.random() < 0.1:
             last_random_reward[message.author.id] = datetime.utcnow()
@@ -182,6 +182,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
