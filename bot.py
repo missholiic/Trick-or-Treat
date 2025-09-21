@@ -1,80 +1,88 @@
 import discord
-from discord.ext import commands
-import json
+from discord.ext import commands, tasks
+import random
+import asyncio
+from datetime import datetime, timedelta
+import pytz
 import os
-import time
+import json
 
-bot = commands.Bot(command_prefix="!")
+# --- CONFIG ---
+TOKEN = os.getenv("TOKEN")  # Set this in Render environment variables
+BOT_NAME = "Trick-or-Treat"
+DAILY_CHANNEL_ID = 1411787882322198600  # #trick-or-treating
+LEADERBOARD_CHANNEL_ID = 1411788070134485042  # #trick-or-treat-leaderboard
+CANDY_EMOJI = "<:CandyCorn:1408306488170254397>"
+LEADERBOARD_EMOJI = "<:TrickorTreat:1419093341026385920>"
+DATA_FILE = "candy.json"
 
-# Load data from JSON file
-def load_data():
-    if not os.path.exists("candy.json"):
-        with open("candy.json", "w") as f:
-            json.dump({"users": {}}, f, indent=4)
-    with open("candy.json", "r") as f:
-        return json.load(f)
+# --- BOT SETUP ---
+intents = discord.Intents.default()
+intents.messages = True
+intents.guilds = True
+intents.message_content = True
+intents.members = True
 
-# Save data to JSON file
-def save_data(data):
-    with open("candy.json", "w") as f:
+bot = commands.Bot(command_prefix="!", intents=intents)
+bot.remove_command("help")
+
+# --- DATA STORAGE ---
+candy = {}  # {user_id: count}
+last_daily = {}  # {user_id: datetime}
+last_trick = {}  # {user_id: datetime}
+last_random_reward = {}  # {user_id: datetime}
+
+
+# --- JSON FUNCTIONS ---
+def save_data():
+    data = {
+        "candy": candy,
+        "last_daily": {uid: dt.isoformat() for uid, dt in last_daily.items()},
+        "last_trick": {uid: dt.isoformat() for uid, dt in last_trick.items()},
+        "last_random_reward": {uid: dt.isoformat() for uid, dt in last_random_reward.items()},
+    }
+    with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-data = load_data()
 
-# Ensure a user exists in the JSON
-def ensure_user(user_id):
-    user_id = str(user_id)
-    if user_id not in data["users"]:
-        data["users"][user_id] = {
-            "candy": 0,
-            "cooldowns": {}
-        }
-        save_data(data)
+def load_data():
+    global candy, last_daily, last_trick, last_random_reward
+    if not os.path.exists(DATA_FILE):
+        return
 
-# Check cooldown
-def is_on_cooldown(user_id, command, cooldown_seconds):
-    user_id = str(user_id)
-    ensure_user(user_id)
-    last_used = data["users"][user_id]["cooldowns"].get(command, 0)
-    current_time = time.time()
-    if current_time - last_used < cooldown_seconds:
-        return cooldown_seconds - (current_time - last_used)
-    return 0
+    with open(DATA_FILE, "r") as f:
+        data = json.load(f)
 
-# Set cooldown
-def set_cooldown(user_id, command):
-    user_id = str(user_id)
-    ensure_user(user_id)
-    data["users"][user_id]["cooldowns"][command] = time.time()
-    save_data(data)
+    candy = {int(uid): amount for uid, amount in data.get("candy", {}).items()}
+    last_daily = {int(uid): datetime.fromisoformat(ts) for uid, ts in data.get("last_daily", {}).items()}
+    last_trick = {int(uid): datetime.fromisoformat(ts) for uid, ts in data.get("last_trick", {}).items()}
+    last_random_reward = {int(uid): datetime.fromisoformat(ts) for uid, ts in data.get("last_random_reward", {}).items()}
 
-# Add candy
+
+# --- FUNCTIONS ---
 def add_candy(user_id, amount):
-    user_id = str(user_id)
-    ensure_user(user_id)
-    data["users"][user_id]["candy"] += amount
-    save_data(data)
+    candy[user_id] = candy.get(user_id, 0) + amount
+    if candy[user_id] < 0:
+        candy[user_id] = 0
+    save_data()
 
-# Example command: trick-or-treat
-@bot.command()
-async def trick(ctx):
-    user_id = ctx.author.id
-    cooldown_time = 60  # seconds
-    remaining = is_on_cooldown(user_id, "trick", cooldown_time)
 
-    if remaining > 0:
-        await ctx.send(f"⏳ You need to wait {int(remaining)}s before trick-or-treating again!")
-    else:
-        add_candy(user_id, 5)
-        set_cooldown(user_id, "trick")
-        await ctx.send(f"🍬 {ctx.author.mention}, you got 5 candy! Total: {data['users'][str(user_id)]['candy']}")
+def can_get_daily(user_id):
+    now = datetime.utcnow()
+    return user_id not in last_daily or now - last_daily[user_id] >= timedelta(hours=24)
 
-# Example command: check candy
-@bot.command()
-async def candy(ctx):
-    user_id = str(ctx.author.id)
-    ensure_user(user_id)
-    amount = data["users"][user_id]["candy"]
-    await ctx.send(f"🍭 {ctx.author.mention}, you have {amount} candy.")
 
-bot.run("YOUR_BOT_TOKEN")
+def can_trick_or_treat(user_id):
+    now = datetime.utcnow()
+    return user_id not in last_trick or now - last_trick[user_id] >= timedelta(hours=24)
+
+
+def can_get_random_reward(user_id):
+    now = datetime.utcnow()
+    return user_id not in last_random_reward or now - last_random_reward[user_id] >= timedelta(hours=1)
+
+
+# --- EVENTS ---
+@bot.event
+async def on_ready():
+    load_data()
