@@ -5,6 +5,9 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 
+import sys
+print("Python version running on Render:", sys.version)
+
 import pytz
 import discord
 from discord.ext import commands, tasks
@@ -310,3 +313,4 @@ if __name__ == "__main__":
     else:
         daily_leaderboard_task.start()
         bot.run(TOKEN)
+
