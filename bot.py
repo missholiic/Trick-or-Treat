@@ -3,314 +3,175 @@ import os
 import json
 import random
 import asyncio
-from datetime import datetime, timedelta
-
 import sys
-print("Python version running on Render:", sys.version)
+from datetime import datetime, timedelta
 
 import pytz
 import discord
 from discord.ext import commands, tasks
 
-# ---------------- CONFIG ----------------
-# Channels (ids you provided)
-TRICK_CHANNEL_ID = 1419091285322629221       # trick-or-treating thread (where bot posts daily & trick results)
-LEADERBOARD_CHANNEL_ID = 1419091463437815831 # trick-or-treat-leaderboard thread (where daily leaderboard posts)
-CANDY_LOG_CHANNEL_ID = 1419091590445793412   # candy-log (mods-only commands must run here)
+# ======================
+# CONFIG
+# ======================
+CANDY_FILE = "candy.json"
+CANDY_EMOJI = "<:CandyCorn:1419093319895744543>"  # custom emoji
+TRICK_OR_TREAT_CHANNEL_ID = 1419091285322629221   # Trick-or-Treat thread
+LEADERBOARD_CHANNEL_ID = 1419091463437815831      # Leaderboard channel
+CANDY_LOG_CHANNEL_ID = 1419091590445793412        # Candy log channel
 
-# Emojis (baked-in)
-CANDY_EMOJI = "<:CandyCorn:1419093319895744543>"
-TRICK_ICON = "<:TrickorTreat:1419093341026385920>"
-GHOST = "👻"
-
-# Files + timing
-DATA_FILE = "candy_data.json"
-TIMEZONE = "US/Pacific"
-LEADERBOARD_HOUR = 17  # 5 PM PST
-DAILY_COOLDOWN_HOURS = 24
-TRICK_COOLDOWN_HOURS = 24
-BONUS_POST_CHANCE = 0.05  # 5% chance to find a bonus candy when posting (tweakable)
-
-# ---------------- INTENTS & BOT ----------------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ---------------- Persistence helpers ----------------
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    # default structure
-    return {"users": {}, "cooldowns": {}}
+# ======================
+# DATA STORAGE
+# ======================
+if os.path.exists(CANDY_FILE):
+    with open(CANDY_FILE, "r") as f:
+        candy = json.load(f)
+else:
+    candy = {}
 
-def save_data():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(DATA, f, ensure_ascii=False, indent=4)
+cooldowns = {}          # user_id: datetime for !trickortreat
+daily_claimed = {}      # user_id: datetime for daily activity candy
 
-DATA = load_data()  # global data structure
+def save_candy():
+    with open(CANDY_FILE, "w") as f:
+        json.dump(candy, f)
 
-def ensure_user_record(uid: str):
-    if uid not in DATA["users"]:
-        DATA["users"][uid] = {"candy": 0}
-    if uid not in DATA["cooldowns"]:
-        DATA["cooldowns"][uid] = {"daily": None, "trick": None}
-    return DATA["users"][uid], DATA["cooldowns"][uid]
+# ======================
+# LEADERBOARD TASK
+# ======================
+@tasks.loop(minutes=1)
+async def leaderboard_task():
+    now = datetime.now(pytz.timezone("US/Pacific"))
+    if now.hour == 17 and now.minute == 0:  # 5pm PST
+        channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
+        if channel:
+            sorted_candy = sorted(candy.items(), key=lambda x: x[1], reverse=True)
+            if not sorted_candy:
+                await channel.send("🎃 The baskets are empty... no candy yet!")
+                return
 
-def parse_iso(s):
-    if not s:
-        return None
-    return datetime.fromisoformat(s)
+            leaderboard_text = (
+                "🏆 **Trick-or-Treat Leaderboard** 🏆\n"
+                "────────────────────────\n\n"
+            )
+            for i, (user_id, amount) in enumerate(sorted_candy, start=1):
+                member = channel.guild.get_member(int(user_id))
+                if member:
+                    leaderboard_text += f"{i}. {member.display_name} — {amount} {CANDY_EMOJI}\n"
 
-def now_utc():
-    return datetime.utcnow()
+            await channel.send(leaderboard_text)
 
-def remaining_from_iso(iso_str, hours):
-    if not iso_str:
-        return None
-    last = parse_iso(iso_str)
-    reset_time = last + timedelta(hours=hours)
-    remaining = reset_time - now_utc()
-    return remaining if remaining.total_seconds() > 0 else None
+# ======================
+# COMMANDS
+# ======================
 
-# ---------------- Utilities ----------------
-def format_timedelta(td: timedelta):
-    if not td:
-        return "0m"
-    total = int(td.total_seconds())
-    hours, rem = divmod(total, 3600)
-    minutes, _ = divmod(rem, 60)
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    return f"{minutes}m"
+# Trick or Treat Gamble
+@bot.command()
+async def trickortreat(ctx):
+    if ctx.channel.id != TRICK_OR_TREAT_CHANNEL_ID:
+        return
 
-async def post_to_trick_channel(content=None, embed=None):
-    channel = bot.get_channel(TRICK_CHANNEL_ID)
+    user_id = str(ctx.author.id)
+    now = datetime.now()
+
+    # Cooldown check
+    if user_id in cooldowns and now < cooldowns[user_id]:
+        remaining = cooldowns[user_id] - now
+        hours, remainder = divmod(int(remaining.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        await ctx.send(
+            f"{ctx.author.mention}, you need to wait {hours}h {minutes}m before trick-or-treating again!"
+        )
+        return
+
+    # Set cooldown
+    cooldowns[user_id] = now + timedelta(hours=24)
+
+    # Candy gain/loss
+    if random.random() < 0.25:  # 25% ghost scare
+        lost = random.randint(1, 3)
+        candy[user_id] = max(0, candy.get(user_id, 0) - lost)
+        save_candy()
+        await ctx.send(f"👻 Boo! You dropped {lost} {CANDY_EMOJI}, {ctx.author.mention}!")
+    else:
+        gained = random.randint(1, 5)
+        candy[user_id] = candy.get(user_id, 0) + gained
+        save_candy()
+        await ctx.send(f"🎃 You got {gained} {CANDY_EMOJI}, {ctx.author.mention}!")
+
+# Check candy bag
+@bot.command()
+async def candybag(ctx):
+    if ctx.channel.id != TRICK_OR_TREAT_CHANNEL_ID:
+        return
+    user_id = str(ctx.author.id)
+    amount = candy.get(user_id, 0)
+    await ctx.send(f"{ctx.author.mention}, you have {amount} {CANDY_EMOJI}.")
+
+# Mod-only add candy
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def addcandy(ctx, member: discord.Member, amount: int):
+    candy[str(member.id)] = candy.get(str(member.id), 0) + amount
+    save_candy()
+    channel = bot.get_channel(CANDY_LOG_CHANNEL_ID)
     if channel:
-        try:
-            if embed:
-                await channel.send(embed=embed)
-            else:
-                await channel.send(content)
-        except discord.Forbidden:
-            print("Permission error: cannot post in trick channel.")
+        await channel.send(f"✅ {amount} {CANDY_EMOJI} added to {member.display_name}.")
+    await ctx.message.delete()
 
-# ---------------- Event: on_ready ----------------
-@bot.event
-async def on_ready():
-    print(f"🎃 Trick-or-Treat Bot online as {bot.user}")
-    if not daily_leaderboard_task.is_running():
-        daily_leaderboard_task.start()
+# Mod-only remove candy
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def removecandy(ctx, member: discord.Member, amount: int):
+    candy[str(member.id)] = max(0, candy.get(str(member.id), 0) - amount)
+    save_candy()
+    channel = bot.get_channel(CANDY_LOG_CHANNEL_ID)
+    if channel:
+        await channel.send(f"❌ {amount} {CANDY_EMOJI} removed from {member.display_name}.")
+    await ctx.message.delete()
 
-# ---------------- Event: grant daily candy when user posts anywhere ----------------
+# ======================
+# EVENTS
+# ======================
 @bot.event
-async def on_message(message: discord.Message):
-    # allow other commands to be processed after
+async def on_message(message):
     if message.author.bot:
         return
 
-    uid = str(message.author.id)
-    user_rec, cd_rec = ensure_user_record(uid)
+    user_id = str(message.author.id)
+    now = datetime.now()
 
-    # DAILY: if 24h passed since last daily -> grant +1 and announce in trick channel
-    last_daily_iso = cd_rec.get("daily")
-    can_claim_daily = True
-    if last_daily_iso:
-        rem = remaining_from_iso(last_daily_iso, DAILY_COOLDOWN_HOURS)
-        if rem:
-            can_claim_daily = False
+    # Daily candy (first post of the day)
+    if user_id not in daily_claimed or now - daily_claimed[user_id] >= timedelta(days=1):
+        candy[user_id] = candy.get(user_id, 0) + 1
+        daily_claimed[user_id] = now
+        save_candy()
 
-    if can_claim_daily:
-        user_rec["candy"] = user_rec.get("candy", 0) + 1
-        # update last_daily to now (store ISO)
-        cd_rec["daily"] = now_utc().isoformat()
-        save_data()
-        # announce in trick channel only
-        await post_to_trick_channel(
-            f"👻 {message.author.mention} found a stray {CANDY_EMOJI} while hanging out — **+1**! "
-            f"(Total: **{user_rec['candy']}** {CANDY_EMOJI})"
-        )
+    # Random lucky candy (10% chance)
+    if random.random() < 0.1:
+        candy[user_id] = candy.get(user_id, 0) + 1
+        save_candy()
+        # Only announce in Trick-or-Treat thread
+        channel = bot.get_channel(TRICK_OR_TREAT_CHANNEL_ID)
+        if channel:
+            await channel.send(f"🍭 {message.author.mention} found a lucky {CANDY_EMOJI} while being active!")
 
-    # BONUS: small chance (independent) to find a hidden candy (posted into trick channel)
-    if random.random() < BONUS_POST_CHANCE:
-        user_rec["candy"] = user_rec.get("candy", 0) + 1
-        save_data()
-        await post_to_trick_channel(
-            f"✨ {message.author.mention} stumbled upon a hidden {CANDY_EMOJI}! (+1, Total: **{user_rec['candy']}** {CANDY_EMOJI})"
-        )
-
-    # process other commands after handling message
     await bot.process_commands(message)
 
-# ---------------- Command: trickortreat (24h cooldown per user) ----------------
-@bot.command(name="trickortreat")
-async def trick_or_treat_command(ctx: commands.Context):
-    # must be used in trick thread
-    if ctx.channel.id != TRICK_CHANNEL_ID:
-        await ctx.send(f"🍬 Please use this command in <#{TRICK_CHANNEL_ID}> to keep things tidy.")
-        return
+@bot.event
+async def on_ready():
+    print(f"{bot.user} is online!")
+    leaderboard_task.start()
 
-    uid = str(ctx.author.id)
-    user_rec, cd_rec = ensure_user_record(uid)
+# ======================
+# RUN BOT (fixes RuntimeError issue)
+# ======================
+if sys.platform.startswith("win") and sys.version_info >= (3, 8):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    # check cooldown
-    rem = remaining_from_iso(cd_rec.get("trick"), TRICK_COOLDOWN_HOURS)
-    if rem:
-        await ctx.send(
-            f"⏳ {ctx.author.mention}, you already went trick-or-treating! Come back in **{format_timedelta(rem)}** to try again."
-        )
-        return
-
-    # set cooldown now
-    cd_rec["trick"] = now_utc().isoformat()
-
-    # roll outcome: 50/50 treat or trick
-    if random.choice([True, False]):
-        gain = random.randint(1, 5)  # win 1-5 candies
-        user_rec["candy"] = user_rec.get("candy", 0) + gain
-        save_data()
-        # announce in trick channel
-        await post_to_trick_channel(
-            f"🍫 {ctx.author.mention} knocked on a door and scored a **king-sized bar** {TRICK_ICON}! "
-            f"You gained **{gain} {CANDY_EMOJI}**. (Total: **{user_rec['candy']}** {CANDY_EMOJI})"
-        )
-    else:
-        loss = random.randint(1, 3)  # lose 1-3 candies
-        before = user_rec.get("candy", 0)
-        lost_actual = min(before, loss)
-        user_rec["candy"] = max(0, before - loss)
-        save_data()
-        await post_to_trick_channel(
-            f"👻 Boo! {ctx.author.mention} got tricked and dropped **{lost_actual} {CANDY_EMOJI}**! "
-            f"(Total: **{user_rec['candy']}** {CANDY_EMOJI})"
-        )
-
-# ---------------- Command: candybag (embed) - only in trick thread ----------------
-@bot.command(name="candybag")
-async def candybag_command(ctx: commands.Context):
-    if ctx.channel.id != TRICK_CHANNEL_ID:
-        await ctx.send(f"📮 You can check your candy bag in <#{TRICK_CHANNEL_ID}>. Please go there and try again.")
-        return
-
-    uid = str(ctx.author.id)
-    user_rec, _ = ensure_user_record(uid)
-    candies = user_rec.get("candy", 0)
-
-    embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Candy Bag {CANDY_EMOJI}",
-        description=f"You currently have **{candies} {CANDY_EMOJI}**.",
-        color=discord.Color.purple()
-    )
-    embed.set_footer(text="Keep posting and trick-or-treating to collect more candy!")
-    # optional thumbnail: use your server emoji URL or a hosted image
-    # embed.set_thumbnail(url="https://example.com/candybag.png")
-    await ctx.send(embed=embed)
-
-# ---------------- Command: cooldown (plain text) ----------------
-@bot.command(name="cooldown")
-async def cooldown_command(ctx: commands.Context):
-    uid = str(ctx.author.id)
-    _, cd_rec = ensure_user_record(uid)
-
-    rem_daily = remaining_from_iso(cd_rec.get("daily"), DAILY_COOLDOWN_HOURS)
-    rem_trick = remaining_from_iso(cd_rec.get("trick"), TRICK_COOLDOWN_HOURS)
-
-    lines = []
-    if rem_daily:
-        lines.append(f"🍬 Daily candy available in **{format_timedelta(rem_daily)}**")
-    else:
-        lines.append("🍬 Daily candy: **Ready to claim** — just post anywhere in the server!")
-
-    if rem_trick:
-        lines.append(f"🎃 Trick-or-Treat available in **{format_timedelta(rem_trick)}**")
-    else:
-        lines.append("🎃 Trick-or-Treat: **Ready** — use `!trickortreat` in the trick thread!")
-
-    await ctx.send(f"{ctx.author.mention}\n" + "\n".join(lines))
-
-# ---------------- Mod commands: addcandy / removecandy (mods only, candy-log channel only) ----------------
-def is_mod(ctx: commands.Context):
-    return ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
-
-@bot.command(name="addcandy")
-async def add_candy_command(ctx: commands.Context, member: discord.Member, amount: int):
-    if ctx.channel.id != CANDY_LOG_CHANNEL_ID:
-        await ctx.send(f"🔒 Moderation commands must be used in <#{CANDY_LOG_CHANNEL_ID}>.")
-        return
-    if not is_mod(ctx):
-        await ctx.send("🚫 You don't have permission to use this command.")
-        return
-    uid = str(member.id)
-    user_rec, _ = ensure_user_record(uid)
-    user_rec["candy"] = user_rec.get("candy", 0) + amount
-    save_data()
-    await ctx.send(f"✅ Added **{amount} {CANDY_EMOJI}** to {member.mention}. (Total: **{user_rec['candy']}**)")
-
-@bot.command(name="removecandy")
-async def remove_candy_command(ctx: commands.Context, member: discord.Member, amount: int):
-    if ctx.channel.id != CANDY_LOG_CHANNEL_ID:
-        await ctx.send(f"🔒 Moderation commands must be used in <#{CANDY_LOG_CHANNEL_ID}>.")
-        return
-    if not is_mod(ctx):
-        await ctx.send("🚫 You don't have permission to use this command.")
-        return
-    uid = str(member.id)
-    user_rec, _ = ensure_user_record(uid)
-    user_rec["candy"] = max(0, user_rec.get("candy", 0) - amount)
-    save_data()
-    await ctx.send(f"✅ Removed **{amount} {CANDY_EMOJI}** from {member.mention}. (Total: **{user_rec['candy']}**)")
-
-# ---------------- Leaderboard: daily at 5 PM PST (embed) ----------------
-@tasks.loop(minutes=1)
-async def daily_leaderboard_task():
-    tz = pytz.timezone(TIMEZONE)
-    now = datetime.now(tz)
-    if now.hour == LEADERBOARD_HOUR and now.minute == 0:
-        # if no users, skip
-        if not DATA.get("users"):
-            return
-        channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
-        if channel is None:
-            return
-
-        # sort all users by candy desc
-        sorted_users = sorted(DATA["users"].items(), key=lambda x: x[1].get("candy", 0), reverse=True)
-        description_lines = []
-        for i, (uid, info) in enumerate(sorted_users, start=1):
-            # show display name if available
-            try:
-                member = channel.guild.get_member(int(uid))
-                name = member.display_name if member else f"<@{uid}>"
-            except Exception:
-                name = f"<@{uid}>"
-            description_lines.append(f"**{i}.** {name} — **{info.get('candy', 0)}** {CANDY_EMOJI}")
-
-        embed = discord.Embed(
-            title="🏆 Trick-or-Treat Leaderboard 🏆",
-            description="\n".join(description_lines),
-            color=discord.Color.orange(),
-            timestamp=datetime.utcnow()
-        )
-        # small banner/thumbnail (keeps it friendly, not AIish)
-        embed.set_footer(text="Updated daily at Item Shop Refresh")
-
-        await channel.send(embed=embed)
-
-# ---------------- Run ----------------
-if __name__ == "__main__":
-    # ensure data file exists
-    save_data()
-    # start bot
-    TOKEN = os.getenv("DISCORD_TOKEN")
-    if not TOKEN:
-        print("ERROR: set DISCORD_TOKEN environment variable.")
-    else:
-        daily_leaderboard_task.start()
-        bot.run(TOKEN)
-
+bot.run(os.getenv("DISCORD_TOKEN"))
