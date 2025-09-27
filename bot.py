@@ -145,7 +145,7 @@ async def on_message(message):
 @tasks.loop(minutes=1)
 async def leaderboard_task():
     now = datetime.now(pytz.timezone("US/Pacific"))
-    if now.hour == 17 and now.minute == 0:  # 5 PM PST
+    if now.hour == 17 and now.minute in range(0, 6):  # between 5:00–5:05 PM PST
         channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if channel:
             sorted_candy = sorted(candy.items(), key=lambda x: x[1], reverse=True)
@@ -159,6 +159,24 @@ async def leaderboard_task():
                     leaderboard_text += f"{i}. {member.display_name} — {amount} {CANDY_EMOJI}\n"
             leaderboard_text += "\n━━━━━━━━━━━━━━━━━━━━━━━"
             await channel.send(leaderboard_text)
+
+# Force leaderboard (mod-only)
+@bot.command(name="forceleaderboard")
+@commands.has_permissions(manage_messages=True)
+async def forceleaderboard(ctx):
+    channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
+    if channel:
+        sorted_candy = sorted(candy.items(), key=lambda x: x[1], reverse=True)
+        if not sorted_candy:
+            await channel.send("🎃 The baskets are empty... no candy yet!")
+            return
+        leaderboard_text = f"{LEADERBOARD_EMOJI} **Trick-or-Treat Leaderboard (Forced Update)** {LEADERBOARD_EMOJI}\n\n"
+        for i, (user_id, amount) in enumerate(sorted_candy, start=1):
+            member = channel.guild.get_member(user_id)
+            if member:
+                leaderboard_text += f"{i}. {member.display_name} — {amount} {CANDY_EMOJI}\n"
+        leaderboard_text += "\n━━━━━━━━━━━━━━━━━━━━━━━"
+        await channel.send(leaderboard_text)
 
 @bot.event
 async def on_ready():
@@ -182,6 +200,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
