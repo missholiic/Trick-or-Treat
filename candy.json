@@ -1,4 +1,6 @@
 {
-  "users": {},
-  "cooldowns": {}
+  "candy": {},
+  "last_daily": {},
+  "last_trick": {},
+  "last_random_reward": {}
 }
