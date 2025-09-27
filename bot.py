@@ -170,7 +170,7 @@ async def forceleaderboard(ctx):
         if not sorted_candy:
             await channel.send("🎃 The baskets are empty... no candy yet!")
             return
-        leaderboard_text = f"{LEADERBOARD_EMOJI} **Trick-or-Treat Leaderboard (Forced Update)** {LEADERBOARD_EMOJI}\n\n"
+        leaderboard_text = f"{LEADERBOARD_EMOJI} **Trick-or-Treat Leaderboard** {LEADERBOARD_EMOJI}\n\n"
         for i, (user_id, amount) in enumerate(sorted_candy, start=1):
             member = channel.guild.get_member(user_id)
             if member:
@@ -200,6 +200,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
