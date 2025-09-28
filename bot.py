@@ -145,7 +145,7 @@ async def on_message(message):
 @tasks.loop(minutes=1)
 async def leaderboard_task():
     now = datetime.now(pytz.timezone("US/Pacific"))
-    if now.hour == 17 and now.minute in range(0, 6):  # between 5:00–5:05 PM PST
+    if now.hour == 17 and now.minute == 0:  # between 5:00–5:05 PM PST
         channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if channel:
             sorted_candy = sorted(candy.items(), key=lambda x: x[1], reverse=True)
@@ -200,6 +200,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
