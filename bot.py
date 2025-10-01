@@ -188,7 +188,7 @@ async def send_leaderboard(ctx_or_channel, data):
 @bot.command(name="forceleaderboard")
 @commands.has_permissions(manage_messages=True)
 async def forceleaderboard(ctx):
-    with open("data.json", "r") as f:
+    with open("candy.json", "r") as f:
         data = json.load(f)
     await send_leaderboard(ctx, data)
 
@@ -199,7 +199,7 @@ async def scheduled_leaderboard():
     now = datetime.now()
     # Only post between 5:00–5:05pm
     if now.hour == 17 and 0 <= now.minute <= 5:
-        with open("data.json", "r") as f:
+        with open("candy.json", "r") as f:
             data = json.load(f)
 
         channel = bot.get_channel(TRICK_THREAD_ID)
@@ -228,6 +228,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
