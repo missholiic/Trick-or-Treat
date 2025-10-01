@@ -144,7 +144,7 @@ async def on_message(message):
 # --- LEADERBOARD HELPERS ---
 async def send_leaderboard(ctx_or_channel, data):
     """Send leaderboard in multiple embed pages if needed."""
-    users = data.get("users", {})
+    users = data.get("candy", {})
     if not users:
         embed = discord.Embed(
             title="🎃 Candy Leaderboard 🎃",
@@ -228,6 +228,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
