@@ -151,19 +151,16 @@ async def send_leaderboard(ctx_or_channel, data):
             description="No candy collected yet!",
             color=discord.Color.orange()
         )
-        if isinstance(ctx_or_channel, commands.Context):
-            await ctx_or_channel.send(embed=embed)
-        else:
-            await ctx_or_channel.send(embed=embed)
+        await ctx_or_channel.send(embed=embed)
         return
 
     # Sort users by candy count (highest first)
-    sorted_users = sorted(users.items(), key=lambda x: x[1]["candy"], reverse=True)
+    sorted_users = sorted(users.items(), key=lambda x: x[1], reverse=True)
 
     # Build leaderboard text lines
     lines = []
-    for i, (user_id, info) in enumerate(sorted_users, start=1):
-        lines.append(f"**{i}.** <@{user_id}> — 🍬 {info['candy']}")
+    for i, (user_id, amount) in enumerate(sorted_users, start=1):
+        lines.append(f"**{i}.** <@{user_id}> — {amount} {CANDY_EMOJI}")
 
     # Split into chunks of 20 users per embed
     chunk_size = 20
@@ -171,17 +168,14 @@ async def send_leaderboard(ctx_or_channel, data):
 
     for page, chunk in enumerate(chunks, start=1):
         embed = discord.Embed(
-            title="🎃 Candy Leaderboard 🎃",
+            title=f"{LEADERBOARD_EMOJI} Candy Leaderboard {LEADERBOARD_EMOJI}",
             description="\n".join(chunk),
             color=discord.Color.orange()
         )
         if len(chunks) > 1:
             embed.set_footer(text=f"Page {page}/{len(chunks)}")
 
-        if isinstance(ctx_or_channel, commands.Context):
-            await ctx_or_channel.send(embed=embed)
-        else:
-            await ctx_or_channel.send(embed=embed)
+        await ctx_or_channel.send(embed=embed)
 
 
 # --- COMMAND: FORCE LEADERBOARD ---
@@ -228,6 +222,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
