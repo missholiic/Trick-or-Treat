@@ -209,7 +209,7 @@ async def scheduled_leaderboard():
 @bot.event
 async def on_ready():
     load_data()
-    leaderboard_task.start()
+    scheduled_leaderboard.start()
     print(f"{BOT_NAME} is online as {bot.user}")
 
 # --- STARTUP WRAPPER ---
@@ -228,6 +228,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
