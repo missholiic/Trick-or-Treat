@@ -141,42 +141,70 @@ async def on_message(message):
                 await trick_channel.send(f"✨ {message.author.display_name} stumbled upon a hidden {CANDY_EMOJI}!")
     await bot.process_commands(message)
 
-# --- LEADERBOARD ---
-@tasks.loop(minutes=1)
-async def leaderboard_task():
-    now = datetime.now(pytz.timezone("US/Pacific"))
-    if now.hour == 17 and now.minute == 0:  # between 5:00–5:05 PM PST
-        channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
-        if channel:
-            sorted_candy = sorted(candy.items(), key=lambda x: x[1], reverse=True)
-            if not sorted_candy:
-                await channel.send("🎃 The baskets are empty... no candy yet!")
-                return
-            leaderboard_text = f"{LEADERBOARD_EMOJI} **Trick-or-Treat Leaderboard** {LEADERBOARD_EMOJI}\n\n"
-            for i, (user_id, amount) in enumerate(sorted_candy, start=1):
-                member = channel.guild.get_member(user_id)
-                if member:
-                    leaderboard_text += f"{i}. {member.display_name} — {amount} {CANDY_EMOJI}\n"
-            leaderboard_text += "\n━━━━━━━━━━━━━━━━━━━━━━━"
-            await channel.send(leaderboard_text)
+# --- LEADERBOARD HELPERS ---
+async def send_leaderboard(ctx_or_channel, data):
+    """Send leaderboard in multiple embed pages if needed."""
+    users = data.get("users", {})
+    if not users:
+        embed = discord.Embed(
+            title="🎃 Candy Leaderboard 🎃",
+            description="No candy collected yet!",
+            color=discord.Color.orange()
+        )
+        if isinstance(ctx_or_channel, commands.Context):
+            await ctx_or_channel.send(embed=embed)
+        else:
+            await ctx_or_channel.send(embed=embed)
+        return
 
-# Force leaderboard (mod-only)
+    # Sort users by candy count (highest first)
+    sorted_users = sorted(users.items(), key=lambda x: x[1]["candy"], reverse=True)
+
+    # Build leaderboard text lines
+    lines = []
+    for i, (user_id, info) in enumerate(sorted_users, start=1):
+        lines.append(f"**{i}.** <@{user_id}> — 🍬 {info['candy']}")
+
+    # Split into chunks of 20 users per embed
+    chunk_size = 20
+    chunks = [lines[i:i + chunk_size] for i in range(0, len(lines), chunk_size)]
+
+    for page, chunk in enumerate(chunks, start=1):
+        embed = discord.Embed(
+            title="🎃 Candy Leaderboard 🎃",
+            description="\n".join(chunk),
+            color=discord.Color.orange()
+        )
+        if len(chunks) > 1:
+            embed.set_footer(text=f"Page {page}/{len(chunks)}")
+
+        if isinstance(ctx_or_channel, commands.Context):
+            await ctx_or_channel.send(embed=embed)
+        else:
+            await ctx_or_channel.send(embed=embed)
+
+
+# --- COMMAND: FORCE LEADERBOARD ---
 @bot.command(name="forceleaderboard")
 @commands.has_permissions(manage_messages=True)
 async def forceleaderboard(ctx):
-    channel = bot.get_channel(LEADERBOARD_CHANNEL_ID)
-    if channel:
-        sorted_candy = sorted(candy.items(), key=lambda x: x[1], reverse=True)
-        if not sorted_candy:
-            await channel.send("🎃 The baskets are empty... no candy yet!")
-            return
-        leaderboard_text = f"{LEADERBOARD_EMOJI} **Trick-or-Treat Leaderboard** {LEADERBOARD_EMOJI}\n\n"
-        for i, (user_id, amount) in enumerate(sorted_candy, start=1):
-            member = channel.guild.get_member(user_id)
-            if member:
-                leaderboard_text += f"{i}. {member.display_name} — {amount} {CANDY_EMOJI}\n"
-        leaderboard_text += "\n━━━━━━━━━━━━━━━━━━━━━━━"
-        await channel.send(leaderboard_text)
+    with open("data.json", "r") as f:
+        data = json.load(f)
+    await send_leaderboard(ctx, data)
+
+
+# --- SCHEDULED LEADERBOARD ---
+@tasks.loop(minutes=1)
+async def scheduled_leaderboard():
+    now = datetime.now()
+    # Only post between 5:00–5:05pm
+    if now.hour == 17 and 0 <= now.minute <= 5:
+        with open("data.json", "r") as f:
+            data = json.load(f)
+
+        channel = bot.get_channel(TRICK_THREAD_ID)
+        if channel:
+            await send_leaderboard(channel, data)
 
 @bot.event
 async def on_ready():
@@ -200,6 +228,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.error("Fatal error starting bot:", exc_info=e)
+
 
 
 
